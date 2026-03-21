@@ -1,9 +1,19 @@
+
 #include "pitches.h"
+
+
+#include <IRremote.h>
+#include <NewTone.h> // Using 'NewTone' because it uses Timer1, so no conflict with IRremote
+
+
+
+
 
 const int latch = 9;  // 74HC595 STCP
 const int clock = 10; // 74HC595 SHCP
 const int data = 8;   // 74HC595 DS
-const int buzzer = 12;
+const int receiver = 11; // Data pin on IR receiver
+const int buzzer = 13;
 const int alarmStop = 7; // Pin for digital input to turn off alarm
 
 int digits[4] = {2, 3, 4, 5}; // Common pins for each digit
@@ -37,8 +47,6 @@ int timeDisplay[4] = {0, 0, 0, 0};
 int clockSpeed = 200;
 
 
-
-
 // Table of numbers from 0 to 9, with letters afterwards
 unsigned char table[] = {
   0x3f, 0x06, 0x5b, 0x4f,
@@ -51,6 +59,7 @@ void setup() {
   pinMode(latch, OUTPUT);
   pinMode(clock, OUTPUT);
   pinMode(data, OUTPUT);
+  pinMode(buzzer, OUTPUT);
   pinMode(alarmStop, INPUT_PULLUP); 
   Serial.begin(9600);
   while (! Serial); // Wait untilSerial is ready - Leonardo
@@ -60,6 +69,9 @@ void setup() {
     // Assumes active-LOW digit control (common cathode via transistors)
     digitalWrite(digits[i], HIGH); // Turn off all digits initially
   }
+
+  //pinMode(receiver, INPUT);
+  IrReceiver.begin(receiver, ENABLE_LED_FEEDBACK);
 }
 
 // Updates the shift register with what to show on the screen. Note this is for one digit at a time
@@ -143,7 +155,7 @@ void UpdateClock(){
 // Note that the alarm is set active in the UpdateClock function
 void PlayAlarm (){
   // If the length of a buzz/silence has played out, switch whether it's buzzing or silent
-  // Note that the 'tone' function is toggled, so it doesn't need calling every loop cycle, just when
+  // Note that the '(New)tone' function is toggled, so it doesn't need calling every loop cycle, just when
   // its state is being changed (i.e. on/off)
   if (currentMillis-alarmMillis >= buzzLength) {
 
@@ -155,10 +167,10 @@ void PlayAlarm (){
     if (alarmBuzzing) {
       // Can optionally inset a length as the third param, nice if you want it to be shorter than
       // the full half-cycle
-      tone(buzzer, buzzPitch, buzzLength/4);
+      NewTone(buzzer, buzzPitch, buzzLength/4);
     } else {
 
-      noTone(buzzer);
+      noNewTone(buzzer);
     }
   }
 
@@ -175,12 +187,21 @@ void loop() {
   if (digitalRead(alarmStop) == LOW) {
     //Serial.println("Switching off alarm");
     alarmActive = false;
+    noNewTone(buzzer);
   }
 
   if (alarmOn && alarmActive) {
     PlayAlarm();
   }
 
+  // IR receiver stuff
+  if (IrReceiver.decode())
+  {
+    Serial.print("IR code: 0x");
+    Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX);
+
+    IrReceiver.resume();
+  }
   
 }
 
