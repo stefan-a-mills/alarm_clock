@@ -1,3 +1,7 @@
+// BUG LIST:
+// Buzzer humming (isolate electrically with relay? Try capacitor smoothing thing?)
+// When buzz & flash occur simultaneously, there can be a strange interaction where the buzzer makes a small noise. Too much current draw? Could just be printing to serial
+
 
 #include "pitches.h"
 
@@ -24,6 +28,7 @@ unsigned long currentMillis = 0;
 unsigned long clockMillis = 0;
 unsigned long multiplexMillis = 0;
 unsigned long alarmMillis = 0;
+unsigned long flashMillis = 0;
 
 int activeDigit = 0;
 unsigned char num = 0;
@@ -41,6 +46,12 @@ bool alarmBuzzing = false;
 unsigned long buzzLength = 1000;
 // The note (from 'pitches' library) for the alarm to play
 int buzzPitch = NOTE_C6;
+// Whether the display should be flashing (e.g. during time set)
+bool flashing = false;
+// Length of flash half-cycle
+unsigned int flashLength = 500;
+// Whether the display should be on or not (part of the flashing cycle)
+bool displayOn = true;
 // The time, in terms of digits to display on the clock
 int timeDisplay[4] = {0, 0, 0, 0};
 // A multiplier if you want the clock to go faster - useful for testing
@@ -78,6 +89,7 @@ void setup() {
 void UpdateShiftReg(int activeDigit){
 
       // The number to be displayed is based on the current time, just need to choose the right digit
+      // @@@@@@@@ This is where I probably want to have an if/else to decide which array activeDigit is being drawn from
       num = timeDisplay[activeDigit];
 
       digitalWrite(latch, LOW);
@@ -87,6 +99,12 @@ void UpdateShiftReg(int activeDigit){
 }
 
 void DisplayDigit() {
+  
+  if (flashing && currentMillis - flashMillis >= flashLength) {
+    flashMillis = currentMillis;
+    displayOn = !displayOn;
+    Serial.println("Flash switch");
+  }
 
   if (currentMillis - multiplexMillis >= 1) {
     // Updating to currentMillis rather than +1 seems to reduce flicker, probably because it ensures each digit gets at least 1ms
@@ -105,8 +123,10 @@ void DisplayDigit() {
     // Update the shift register with the appropriate number, given the time and active digit
     UpdateShiftReg(activeDigit);
 
-    // Enable the selected digit
-    digitalWrite(digits[activeDigit], LOW);
+    // Enable the selected digit, if the screen is meant to be on currently
+    if (displayOn == true){
+      digitalWrite(digits[activeDigit], LOW);
+    }
   }
 }
 
@@ -176,6 +196,40 @@ void PlayAlarm (){
 
 }
 
+// A list of actions to take for each button that could be pressed
+void RemoteActions() {
+    Serial.print("IR code: 0x");
+    Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX);
+    switch (IrReceiver.decodedIRData.decodedRawData)
+  {
+    case 0xBA45FF00: Serial.println("POWER"); break;
+    case 0xB847FF00: Serial.println("FUNC/STOP"); flashing = !flashing; break;
+    case 0xB946FF00: Serial.println("VOL+"); break;
+    case 0xBB44FF00: Serial.println("FAST BACK");    break;
+    case 0xBF40FF00: Serial.println("PAUSE");    break;
+    case 0xBC43FF00: Serial.println("FAST FORWARD");   break;
+    case 0xF807FF00: Serial.println("DOWN");    break;
+    case 0xEA15FF00: Serial.println("VOL-");    break;
+    case 0xF609FF00: Serial.println("UP");    break;
+    case 0xE619FF00: Serial.println("EQ");    break;
+    case 0xF20DFF00: Serial.println("ST/REPT");    break;
+    case 0xE916FF00: Serial.println("0");    break;
+    case 0xF30CFF00: Serial.println("1");    break;
+    case 0xE718FF00: Serial.println("2");    break;
+    case 0xA15EFF00: Serial.println("3");    break;
+    case 0xF708FF00: Serial.println("4");    break;
+    case 0xE31CFF00: Serial.println("5");    break;
+    case 0xA55AFF00: Serial.println("6");    break;
+    case 0xBD42FF00: Serial.println("7");    break;
+    case 0xAD52FF00: Serial.println("8");    break;
+    case 0xB54AFF00: Serial.println("9");    break;
+    default:
+      Serial.println(" other button   ");
+  }// End Case
+
+  IrReceiver.resume();
+}
+
 void loop() {
 
   currentMillis = millis();
@@ -197,11 +251,7 @@ void loop() {
   // IR receiver stuff
   if (IrReceiver.decode())
   {
-    Serial.print("IR code: 0x");
-    Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX);
-
-    IrReceiver.resume();
+    RemoteActions();
   }
   
 }
-
