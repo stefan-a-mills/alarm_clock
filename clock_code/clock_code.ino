@@ -46,6 +46,10 @@ bool alarmBuzzing = false;
 unsigned long buzzLength = 1000;
 // The note (from 'pitches' library) for the alarm to play
 int buzzPitch = NOTE_C6;
+// The time in minutes for the display to switch off
+unsigned int sleepStartMinutes = 1260;
+// The time in minutes for the display to switch back on
+unsigned int sleepEndMinutes = 420;
 // Whether the display should be flashing (e.g. during time set)
 bool flashing = false;
 // Length of flash half-cycle
@@ -56,6 +60,21 @@ bool displayOn = true;
 int timeDisplay[4] = {0, 0, 0, 0};
 // A multiplier if you want the clock to go faster - useful for testing
 int clockSpeed = 200;
+// A bool to determine if a 'menu' screen should be showing instead of the actual time
+// e.g. when setting the alarm time
+bool menuOn = false;
+// The time to display in the menu screen
+int menuDisplay[4] = {0, 0, 0, 0};
+// Which digit in the menu is being set currently?
+int menuDigit = 0;
+// Determines whether the alarm menu is active
+bool alarmMenu = false;
+// Clock menu active state
+bool clockMenu = false;
+// Menu for setting the start time for the display to switch off
+bool sleepStartMenu = false;
+// Menu for setting the end time for the display to switch off
+bool sleepEndMenu = false;
 
 
 // Table of numbers from 0 to 9, with letters afterwards
@@ -88,9 +107,13 @@ void setup() {
 // Updates the shift register with what to show on the screen. Note this is for one digit at a time
 void UpdateShiftReg(int activeDigit){
 
-      // The number to be displayed is based on the current time, just need to choose the right digit
-      // @@@@@@@@ This is where I probably want to have an if/else to decide which array activeDigit is being drawn from
-      num = timeDisplay[activeDigit];
+      // Choose from the actual time or the menu, depending on which is active
+      if (!menuOn){
+        // The number to be displayed is based on the current time, just need to choose the right digit
+        num = timeDisplay[activeDigit];
+      } else {
+        num = menuDisplay[activeDigit];
+      }
 
       digitalWrite(latch, LOW);
       shiftOut(data, clock, MSBFIRST, table[num]);
@@ -100,10 +123,11 @@ void UpdateShiftReg(int activeDigit){
 
 void DisplayDigit() {
   
+  // If flashing is enabled, check whether it's time to switch the display between on/off
   if (flashing && currentMillis - flashMillis >= flashLength) {
     flashMillis = currentMillis;
     displayOn = !displayOn;
-    Serial.println("Flash switch");
+    //Serial.println("Flash switch");
   }
 
   if (currentMillis - multiplexMillis >= 1) {
@@ -168,6 +192,14 @@ void UpdateClock(){
         alarmMillis = currentMillis;
         alarmBuzzing = true;
       }
+      // Switch the display on/off if it's sleep time. Deliberately putting sleepEnd
+      // in second place so if the times are the same the display ends up on
+      if (timeMinutes == sleepStartMinutes) {
+        displayOn = false;
+      }
+      if (timeMinutes == sleepEndMinutes) {
+        displayOn = true;
+      }
   }
 }
 
@@ -196,33 +228,108 @@ void PlayAlarm (){
 
 }
 
+// For converting 4 digit time to minutes
+int DisplayToMins(int display[4]){
+  int mins = 0;
+  mins += display[3];
+  mins += display[2]*10;
+  mins += display[1]*60;
+  mins += display[0]*600;
+  return(mins);
+}
+
+// When a menu button is triggered, switch the menu state and enable/disable flashing correspondingly 
+void TriggerMenu() {
+  // Toggle the menu state
+  menuOn = !menuOn;
+  // If the menu is now turned off, make sure you disable all menu bools and flashing
+  if (!menuOn) {
+    alarmMenu = false;
+    clockMenu = false;
+    sleepStartMenu = false;
+    sleepEndMenu = false;
+
+    flashing = false;
+    // Make sure the display is on, e.g. in case menu exits while it's flashed off
+    displayOn = true;
+    // Reset menu display so next time it is activated it will be 0000
+    for (int i = 0; i < 4; i++) {
+    menuDisplay[i] = 0;
+    }
+  // If the menu is now on, make the screen flash and set the selected digit to the first one
+  } else {
+    flashing = true;
+    // Make sure we're starting with the first menuDigit being the active one to set
+    menuDigit = 0;
+  }
+}
+
+// Setting digits in the menu, and when all four are set, updating whichever setting was being set, e.g. alarm or time
+void SetDigit (int digit){
+  // Only do something if we're in the menu screen
+  if (menuOn) {
+    // Update the menu with whatever digit triggered the function, e.g. '2'
+    menuDisplay[menuDigit] = digit;
+    // If we've not just set the last digit, update which digit we're setting
+    // Otherwise, update whatever we were setting and then close out the menu
+    if (menuDigit < 3) {
+      menuDigit += 1;
+    } else {
+      // Set whichever feature was being set (e.g. clock, alarm, sleep)
+      if (alarmMenu) {
+        alarmTimeMinutes = DisplayToMins(menuDisplay);
+      } else if (clockMenu){
+        timeMinutes = DisplayToMins(menuDisplay);
+        // Reset the timer so there's a whole minute until the clock updates with a new minute
+        clockMillis = currentMillis;
+      } else if (sleepStartMenu){
+        sleepStartMinutes = DisplayToMins(menuDisplay);
+      } else if (sleepEndMenu){
+        sleepEndMinutes = DisplayToMins(menuDisplay);
+      }
+      
+      // This function will make sure flashing gets disabled and the menuDisplay is reset for next time
+      TriggerMenu();
+    }
+    
+  }
+}
+
 // A list of actions to take for each button that could be pressed
 void RemoteActions() {
     Serial.print("IR code: 0x");
     Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX);
     switch (IrReceiver.decodedIRData.decodedRawData)
   {
-    case 0xBA45FF00: Serial.println("POWER"); break;
-    case 0xB847FF00: Serial.println("FUNC/STOP"); flashing = !flashing; break;
-    case 0xB946FF00: Serial.println("VOL+"); break;
-    case 0xBB44FF00: Serial.println("FAST BACK");    break;
-    case 0xBF40FF00: Serial.println("PAUSE");    break;
-    case 0xBC43FF00: Serial.println("FAST FORWARD");   break;
-    case 0xF807FF00: Serial.println("DOWN");    break;
+    // Power button can be used to stop the alarm (not the same as toggling it as per further down)
+    case 0xBA45FF00: Serial.println("POWER");  alarmActive = false; noNewTone(buzzer);break;
+    // This will be the 'set alarm' button
+    case 0xB847FF00: Serial.println("FUNC/STOP"); alarmMenu = true; TriggerMenu(); break;
+    // This will be the 'set time' button
+    case 0xB946FF00: Serial.println("VOL+"); clockMenu = true; TriggerMenu(); break;
+    // Button for setting (display) sleep start time
+    case 0xBB44FF00: Serial.println("FAST BACK"); sleepStartMenu = true; TriggerMenu();   break;
+    // Button for setting (display) sleep end time
+    case 0xBF40FF00: Serial.println("PAUSE");  sleepEndMenu = true; TriggerMenu();  break;
+    // Button toggles whether the alarm should activate
+    case 0xBC43FF00: Serial.println("FAST FORWARD"); alarmOn = !alarmOn;  break;
+    // Button toggles whether the screen is currently on/off
+    case 0xF807FF00: Serial.println("DOWN");  displayOn = !displayOn;  break;
     case 0xEA15FF00: Serial.println("VOL-");    break;
     case 0xF609FF00: Serial.println("UP");    break;
     case 0xE619FF00: Serial.println("EQ");    break;
     case 0xF20DFF00: Serial.println("ST/REPT");    break;
-    case 0xE916FF00: Serial.println("0");    break;
-    case 0xF30CFF00: Serial.println("1");    break;
-    case 0xE718FF00: Serial.println("2");    break;
-    case 0xA15EFF00: Serial.println("3");    break;
-    case 0xF708FF00: Serial.println("4");    break;
-    case 0xE31CFF00: Serial.println("5");    break;
-    case 0xA55AFF00: Serial.println("6");    break;
-    case 0xBD42FF00: Serial.println("7");    break;
-    case 0xAD52FF00: Serial.println("8");    break;
-    case 0xB54AFF00: Serial.println("9");    break;
+    // Try to set a digit if a number is pressed: function only does something if a menu is currently enabled
+    case 0xE916FF00: Serial.println("0"); SetDigit(0);    break;
+    case 0xF30CFF00: Serial.println("1");  SetDigit(1);   break;
+    case 0xE718FF00: Serial.println("2");  SetDigit(2);   break;
+    case 0xA15EFF00: Serial.println("3");  SetDigit(3);   break;
+    case 0xF708FF00: Serial.println("4"); SetDigit(4);    break;
+    case 0xE31CFF00: Serial.println("5"); SetDigit(5);    break;
+    case 0xA55AFF00: Serial.println("6"); SetDigit(6);    break;
+    case 0xBD42FF00: Serial.println("7"); SetDigit(7);    break;
+    case 0xAD52FF00: Serial.println("8");  SetDigit(8);   break;
+    case 0xB54AFF00: Serial.println("9");  SetDigit(9);   break;
     default:
       Serial.println(" other button   ");
   }// End Case
@@ -233,6 +340,7 @@ void RemoteActions() {
 void loop() {
 
   currentMillis = millis();
+  // Check if a minute has passed, if it has, update the time
   UpdateClock();
   DisplayDigit();
 
