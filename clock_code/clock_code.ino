@@ -34,7 +34,7 @@ unsigned long flashMillis = 0;
 int activeDigit = 0;
 unsigned char num = 0;
 // Track what the time is in minutes - initialise at 0 (midnight)
-unsigned int timeMinutes = 1284;
+unsigned int timeMinutes = 0;
 // Track when the alarm should go off - initialise at 540 (9AM)
 unsigned int alarmTimeMinutes = 362;
 // Whether there is an alarm set
@@ -91,6 +91,7 @@ void setup() {
   pinMode(clock, OUTPUT);
   pinMode(data, OUTPUT);
   pinMode(buzzer, OUTPUT);
+  digitalWrite(buzzer, LOW);
   pinMode(alarmStop, INPUT_PULLUP); 
   Serial.begin(9600);
   while (! Serial); // Wait untilSerial is ready - Leonardo
@@ -224,6 +225,7 @@ void PlayAlarm (){
     } else {
 
       noNewTone(buzzer);
+      digitalWrite(buzzer, LOW);
     }
   }
 
@@ -307,7 +309,7 @@ void RemoteActions() {
     switch (IrReceiver.decodedIRData.decodedRawData)
   {
     // Power button can be used to stop the alarm (not the same as toggling it as per further down)
-    case 0xBA45FF00: Serial.println("POWER");  alarmActive = false; noNewTone(buzzer);break;
+    case 0xBA45FF00: Serial.println("POWER");  alarmActive = false; noNewTone(buzzer); digitalWrite(buzzer, LOW); break;
     // This will be the 'set alarm' button
     case 0xB847FF00: Serial.println("FUNC/STOP"); alarmMenu = true; TriggerMenu(); break;
     // This will be the 'set time' button
@@ -355,6 +357,7 @@ void loop() {
     //Serial.println("Switching off alarm");
     alarmActive = false;
     noNewTone(buzzer);
+    digitalWrite(buzzer, LOW);
   }
 
   if (alarmOn && alarmActive) {
