@@ -1,7 +1,8 @@
 // BUG LIST:
 // Buzzer humming (isolate electrically with relay? Try capacitor smoothing thing?)
 // When buzz & flash occur simultaneously, there can be a strange interaction where the buzzer makes a small noise. Too much current draw? Could just be printing to serial
-
+// Buzzer can make a noise when IR receiver is triggered
+// Perhaps (IR) receiver pin should be pulled up (or down)? ChatGPT says probably unnecessary
 
 #include "pitches.h"
 
@@ -33,9 +34,9 @@ unsigned long flashMillis = 0;
 int activeDigit = 0;
 unsigned char num = 0;
 // Track what the time is in minutes - initialise at 0 (midnight)
-unsigned int timeMinutes = 0;
+unsigned int timeMinutes = 1284;
 // Track when the alarm should go off - initialise at 540 (9AM)
-unsigned int alarmTimeMinutes = 20;
+unsigned int alarmTimeMinutes = 362;
 // Whether there is an alarm set
 bool alarmOn = true;
 // Whether the alarm is currently activated
@@ -47,9 +48,9 @@ unsigned long buzzLength = 1000;
 // The note (from 'pitches' library) for the alarm to play
 int buzzPitch = NOTE_C6;
 // The time in minutes for the display to switch off
-unsigned int sleepStartMinutes = 1260;
+unsigned int sleepStartMinutes = 1320;
 // The time in minutes for the display to switch back on
-unsigned int sleepEndMinutes = 420;
+unsigned int sleepEndMinutes = 360;
 // Whether the display should be flashing (e.g. during time set)
 bool flashing = false;
 // Length of flash half-cycle
@@ -59,7 +60,7 @@ bool displayOn = true;
 // The time, in terms of digits to display on the clock
 int timeDisplay[4] = {0, 0, 0, 0};
 // A multiplier if you want the clock to go faster - useful for testing
-int clockSpeed = 200;
+int clockSpeed = 1;
 // A bool to determine if a 'menu' screen should be showing instead of the actual time
 // e.g. when setting the alarm time
 bool menuOn = false;
@@ -282,6 +283,10 @@ void SetDigit (int digit){
         timeMinutes = DisplayToMins(menuDisplay);
         // Reset the timer so there's a whole minute until the clock updates with a new minute
         clockMillis = currentMillis;
+        // Update the display
+        for (int i = 0; i < 4; i++) {
+          timeDisplay[i] = menuDisplay[i];
+        }
       } else if (sleepStartMenu){
         sleepStartMinutes = DisplayToMins(menuDisplay);
       } else if (sleepEndMenu){
